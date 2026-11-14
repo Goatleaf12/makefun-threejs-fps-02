@@ -17,9 +17,13 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
 // Start from a clean output directory so a stale screenshot or dossier
-// from an earlier run can never leak into this one.
-rmSync(out, { recursive: true, force: true });
+// from an earlier run can never leak into this one. Clear the directory's
+// CONTENTS, never the directory itself: in the grader /output is a mount
+// point, and removing the mount point itself fails (EBUSY/EACCES).
 mkdirSync(out, { recursive: true });
+for (const entry of readdirSync(out)) {
+  rmSync(join(out, entry), { recursive: true, force: true });
+}
 
 const gameDir = join(here, 'game');
 const shotsDir = join(here, 'screenshots');
