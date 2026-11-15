@@ -278,6 +278,9 @@ export class Bot {
       // Fresh sighting: reaction delay scales with distance.
       this.reactAt = ctx.now + BOT.reactMin + Math.random() * (BOT.reactMax - BOT.reactMin) + bestD * 0.004;
       this.burstLeft = 0;
+      // Squad comms: call the contact out (throttled by the sighting
+      // itself — a bot only re-reports when its target changes).
+      ctx.onContact?.(this, best);
     }
     this.enemy = best;
   }

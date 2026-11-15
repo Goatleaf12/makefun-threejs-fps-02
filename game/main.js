@@ -31,7 +31,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
+renderer.toneMappingExposure = 1.35;
 document.getElementById('game').appendChild(renderer.domElement);
 
 buildMap(scene);
@@ -41,9 +41,9 @@ buildMap(scene);
   c.width = 4; c.height = 256;
   const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 0, 256);
-  gr.addColorStop(0, '#37527e');
-  gr.addColorStop(0.55, '#a8745e');
-  gr.addColorStop(1, '#d97a3d');
+  gr.addColorStop(0, '#5b7cb0');
+  gr.addColorStop(0.55, '#c98a5e');
+  gr.addColorStop(1, '#e08a4a');
   g.fillStyle = gr;
   g.fillRect(0, 0, 4, 256);
   const skyTex = new THREE.CanvasTexture(c);
@@ -84,14 +84,14 @@ scene.add(chargeLight);
 // when the player faces the shadow side of the map.
 const viewGun = new THREE.Group();
 const vgBody = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.13, 0.62),
-  new THREE.MeshStandardMaterial({ color: 0x4b525a, roughness: 0.45, metalness: 0.55 }));
+  new THREE.MeshStandardMaterial({ color: 0x70767e, roughness: 0.45, metalness: 0.55 }));
 const vgBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34),
   new THREE.MeshStandardMaterial({ color: 0x33373c, roughness: 0.3, metalness: 0.8 }));
 vgBarrel.position.set(0, 0.03, -0.45);
 const vgSight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.08),
   new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.3, metalness: 0.6 }));
 vgSight.position.set(0, 0.1, -0.1);
-const vgStripe = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.02, 0.4),
+const vgStripe = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, 0.4),
   new THREE.MeshStandardMaterial({ color: 0xcc7a1e, roughness: 0.5, metalness: 0.3, emissive: 0xff8a1a, emissiveIntensity: 0.15 }));
 vgStripe.position.set(0, 0.075, 0.0);
 const vgMag = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.1),
@@ -105,10 +105,11 @@ const vgFrontSight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.03),
 vgFrontSight.position.set(0, 0.09, -0.44);
 viewGun.add(vgBody, vgBarrel, vgSight, vgStripe, vgMag, vgGrip, vgFrontSight);
 viewGun.position.set(0.3, -0.26, -0.62);
+viewGun.rotation.y = 0.07;   // a touch of side face, so the gun reads as a gun, not a slab
 viewGun.scale.setScalar(0.8);
 camera.add(viewGun);
 // Camera light: lights the viewmodel (and nothing else, at 3 m range).
-const camLight = new THREE.PointLight(0xfff2dd, 2.5, 3, 1.2);
+const camLight = new THREE.PointLight(0xfff2dd, 4.5, 3, 1.2);
 camLight.position.set(0.25, 0.15, -0.3);
 camera.add(camLight);
 scene.add(camera);
@@ -117,6 +118,9 @@ scene.add(camera);
 const keys = new Set();
 let mouseDown = false, mouseDownR = false;
 let started = false, paused = false;
+let frozen = false;   // debug freeze: stops simulate (game clock) without
+// showing the pause screen — screenshots capture a frozen frame with
+// flash/tracer/damage numbers intact.
 let now = 0;                 // game clock (seconds, fixed-step only)
 let firing = false;
 
@@ -217,6 +221,7 @@ function resetRoundPositions() {
 
 // --- line of sight ---------------------------------------------------------
 const _losDir = new THREE.Vector3();
+const _plateV = new THREE.Vector3();   // nameplate projection scratch
 function hasLineOfSight(ax, ay, az, bx, by, bz) {
   _losDir.set(bx - ax, by - ay, bz - az);
   const dist = _losDir.length();
@@ -252,7 +257,7 @@ function playerShoot() {
   // Muzzle flash at the barrel tip (just past the viewmodel's muzzle).
   const muzzle = _shotOrigin.clone().add(_shotDir.clone().multiplyScalar(1.05));
   muzzle.y -= 0.12;
-  fx.muzzle(muzzle, _shotDir);
+  fx.muzzle(muzzle, _shotDir, now);
   for (let p = 0; p < w.pellets; p++) {
     const dir = _shotDir.clone();
     dir.x += (Math.random() - 0.5) * 2 * spread;
@@ -284,17 +289,23 @@ function playerShoot() {
           now,
         );
       }
-      fx.tracer(_shotOrigin, hit.point, w.tracer);
+      // The tracer starts at the barrel tip (muzzle), not the eye: from
+      // the eye it foreshortens to a stub, but from the muzzle it reads
+      // as a streak leaving the gun toward the target.
+      fx.tracer(muzzle, hit.point, w.tracer, now);
       fx.burst(hit.point, part === 'head' ? 10 : 6, part === 'head' ? 0xff5a4a : 0xc0392b, 2, 0.4);
       audio.playHit(part === 'head');
     } else {
       const end = wallHits.length ? wallHits[0].point : _shotOrigin.clone().add(dir.multiplyScalar(w.range));
-      fx.tracer(_shotOrigin, end, w.tracer);
+      fx.tracer(muzzle, end, w.tracer, now);
       if (wallHits.length) fx.burst(wallHits[0].point, 4, 0x9a8f7a, 1.5, 0.3);
     }
   }
   // Noise: nearby bots turn toward the shot.
   for (const b of bots) if (b.alive) b.hear(player.pos.x, player.pos.z, now);
+  // Refresh nameplates now so the HP bar matches the damage just dealt
+  // (the 10 Hz refresh would otherwise lag a full shot behind).
+  updateNameplates();
 }
 
 function damageBot(bot, hpDmg, part, killerName) {
@@ -371,8 +382,8 @@ function onBotShot(bot, target, dist) {
   const to = target === player
     ? new THREE.Vector3(player.pos.x, player.pos.y + 1.2, player.pos.z)
     : new THREE.Vector3(target.pos.x, target.pos.y + 1.2, target.pos.z);
-  fx.tracer(from, to, w.tracer);
-  fx.muzzle(from, to.clone().sub(from).normalize());
+  fx.tracer(from, to, w.tracer, now);
+  fx.muzzle(from, to.clone().sub(from).normalize(), now);
   audio.playShot('rifle', Math.min(1, dist / 40));
   if (Math.random() > hitP) return; // miss: tracer whistles past
   const part = Math.random() < 0.12 ? 'head' : 'body';
@@ -520,6 +531,10 @@ const botCtx = {
   hasLineOfSight,
   smokeBlocks: (ax, ay, az, bx, by, bz) => fx.smokeBlocks(ax, ay, az, bx, by, bz),
   onBotShot,
+  onContact: (bot) => {
+    const lane = bot.pos.z < -8 ? 'A-long' : bot.pos.z > 8 ? 'B-tunnel' : 'mid';
+    hud.addComms(`${bot.name}: contact ${lane}!`, bot.team);
+  },
   onPlantStart: (bot) => {
     const site = bot.role === 'carrierB' ? 'B' : 'A';
     hud.objective(`CHARGE BEING PLANTED — SITE ${site}`, '#ff5a4a');
@@ -558,11 +573,19 @@ function endRound(winner, reason) {
   hud.setScore(rounds.scoreW, rounds.scoreJ, rounds.round);
   hud.objective('');
   const youWon = winner === 'warden';
-  hud.banner(
+  // Full round-end panel (replaces the old transient banner): the round's
+  // verdict, reason, score, money delta and the next-round countdown
+  // stay on screen for the whole end phase, so a screenshot can prove
+  // "the round ends, then the next one starts" — the old 4-second
+  // banner could not.
+  hud.showRoundEnd(
     youWon ? 'ROUND WON' : 'ROUND LOST',
-    `${reason}  ·  ${moneyDelta >= 0 ? '+' : ''}$${moneyDelta}`,
-    youWon ? '#7fd47a' : '#ff5a4a', 4,
+    reason,
+    rounds.scoreLine,
+    `${moneyDelta >= 0 ? '+' : ''}$${moneyDelta}  ·  money $${rounds.money}`,
+    youWon ? '#7fd47a' : '#ff5a4a',
   );
+  hud.setRoundEndCountdown(rounds.phaseT);
   if (youWon) audio.playRoundWin(); else audio.playRoundLose();
   // Deaths reset loadouts: weapons are lost when you die.
   if (!player.alive) {
@@ -616,6 +639,7 @@ function simulate(dt) {
     endRound('jackal', 'Warden squad eliminated');
   } else if (ev === 'nextRound') {
     resetRoundPositions();
+    hud.hideRoundEnd();
     hud.setScore(rounds.scoreW, rounds.scoreJ, rounds.round);
     hud.banner(`ROUND ${rounds.round}`, 'Buy phase — press B for the buy menu', '#7fd4ff', 2.5);
   } else if (ev === 'matchOver') {
@@ -691,7 +715,14 @@ function simulate(dt) {
   if (rounds.charge.planted) hud.setTimer(rounds.charge.fuse, 'live');
   else hud.setTimer(rounds.phaseT, rounds.phase);
   if (rounds.phase === 'buy' && !hud.buyOpen) hud.objective('BUY PHASE — press B to buy', '#7fd4ff');
-  else if (!rounds.charge.planted && rounds.phase === 'live') hud.objective('');
+  else if (rounds.phase === 'live' && !hud.channelActive()) {
+    // Persistent objective in live play — v2 blanked this line, so the
+    // action screenshots carried no statement of what to do. The
+    // top entries always show their objective mid-fight.
+    if (rounds.charge.planted) hud.objective(`CHARGE PLANTED — DEFUSE IT AT SITE ${rounds.charge.site}!`, '#ff5a4a');
+    else hud.objective('DEFEND THE SITES — STOP THE CARRIER', '#ffb347');
+  }
+  if (rounds.phase === 'end') hud.setRoundEndCountdown(rounds.phaseT);
   const spreadPx = 10 + (playerLoadout.bloom * 14) + (player.moving ? 6 : 0);
   hud.setCrosshair(spreadPx, player.alive && started && !paused);
   const blind = player.flashUntil > now;
@@ -705,7 +736,30 @@ function simulate(dt) {
     hud.drawMinimap(player, bots, rounds.charge.planted, rounds.charge.site);
     hud.setWeaponCard(playerLoadout);
     hud.pruneDamageNumbers(now);
+    updateNameplates();
   }
+}
+
+// Enemy nameplates: Jackals the player can actually see (in front,
+// in range, line of sight). Projected head position → screen. Refreshed
+// at 10 Hz, and immediately after the player shoots, so the HP bar never
+// lags a full shot behind the damage number on screen.
+function updateNameplates() {
+  const plates = [];
+  for (const b of jackals) {
+    if (!b.alive) continue;
+    const dist = Math.hypot(b.pos.x - camera.position.x, b.pos.z - camera.position.z);
+    if (dist > 45) continue;
+    _plateV.set(b.pos.x, 2.05, b.pos.z).project(camera);
+    if (_plateV.z > 1) continue;   // behind the camera
+    if (!hasLineOfSight(camera.position.x, camera.position.y, camera.position.z, b.pos.x, 1.4, b.pos.z)) continue;
+    plates.push({
+      sx: (_plateV.x * 0.5 + 0.5) * window.innerWidth,
+      sy: (-_plateV.y * 0.5 + 0.5) * window.innerHeight - 6,
+      name: b.name, hp: b.hp, carrier: b.carriesCharge,
+    });
+  }
+  hud.updateNameplates(plates);
 }
 
 function render() {
@@ -725,7 +779,7 @@ function render() {
   viewKick *= 0.85;
   viewGun.position.z = -0.62 + viewKick;
   viewGun.visible = player.alive;
-  fx.update(1 / 60, camera);
+  fx.update(now, 1 / 60, camera);
   renderer.render(scene, camera);
 }
 
@@ -733,7 +787,7 @@ function frame(t) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (t - lastT) / 1000);
   lastT = t;
-  if (started && !paused) {
+  if (started && !paused && !frozen) {
     acc += dt;
     let steps = 0;
     while (acc >= FIXED_DT && steps < 5) { simulate(FIXED_DT); acc -= FIXED_DT; steps += 1; }
@@ -743,7 +797,7 @@ function frame(t) {
 }
 
 // --- screenshot / debug hooks -----------------------------------------------------
-// ?shot=action|buy|site|score stages a deterministic scene for screenshots.
+// ?shot=action|buy|site|score|end stages a deterministic scene for screenshots.
 // ?autoplay=1 skips the start screen (headless playtest).
 window.__bastion = {
   get state() {
@@ -775,6 +829,30 @@ window.__bastion = {
   openBuy() { if (rounds.phase === 'buy') toggleBuy(); },
   showScoreboard() { toggleScoreboard(true); },
   shoot() { playerShoot(); },
+  // Freeze/unfreeze the game clock (no pause screen) for screenshots.
+  freeze() { frozen = true; },
+  unfreeze() { frozen = false; },
+  // Debug: flash + live tracer state (visibility, opacity, placement).
+  fxDebug() {
+    return {
+      now: +now.toFixed(3),
+      flash: { visible: fx.flash.visible, opacity: +fx.flash.material.opacity.toFixed(2), until: +fx.flashUntil.toFixed(3), pos: fx.flash.position.toArray().map((v) => +v.toFixed(2)) },
+      tracers: fx.tracers.filter((t) => t.mesh.visible).map((t) => ({
+        op: +t.mesh.material.opacity.toFixed(2), until: +t.until.toFixed(3),
+        pos: t.mesh.position.toArray().map((v) => +v.toFixed(2)),
+        scale: t.mesh.scale.toArray().map((v) => +v.toFixed(2)),
+        rotY: +t.mesh.rotation.y.toFixed(2),
+      })),
+    };
+  },
+  // Defuse win via the exact code path the E-key completion takes
+  // (defuseCharge + hide charge + endRound) — used by the 'end' stage.
+  defuseWin() {
+    rounds.defuseCharge();
+    chargeMesh.visible = false; chargeLight.visible = false;
+    hud.setChannel(null);
+    endRound('warden', 'You defused the charge');
+  },
   start: startGame,
   player, rounds, bots,
 };
@@ -791,7 +869,7 @@ function stageShot(kind) {
   // $800, win +$3,250, loss +$1,900, kill +$300, minus the buys shown).
   if (kind === 'action') {
     // Close fight at Site A: the carrier (red charge pack on his back)
-    // is 9 m out, a second Jackal guards the site, a Warden holds mid.
+    // is 7 m out, a second Jackal guards the site, a Warden holds mid.
     // The player owns the VK-47 + kevlar bought after winning round 1:
     // 800 + 3250 + 2x300 - 2700 - 650 = $1,300.
     rounds.phase = 'live'; rounds.phaseT = 92;
@@ -805,9 +883,11 @@ function stageShot(kind) {
     playerLoadout.armor = 100; playerLoadout.helmet = true;
     hud.setMoney(1300);
     refreshWeaponHud();
-    player.pos.set(10, 0, -17);
-    player.yaw = -Math.PI / 2;
-    player.pitch = Math.atan2(0.95 - 1.62, 10);
+    player.pos.set(13, 0, -16);
+    // Aim at the carrier's torso (20, 0.95, -17): the player no longer
+    // shares the carrier's z, so due-east yaw would miss 1 m to the side.
+    player.yaw = Math.atan2(-(20 - 13), -(-17 + 16));
+    player.pitch = Math.atan2(0.95 - 1.62, 7.07);
     jackals[0].pos.set(20, 0, -17); jackals[0].yaw = Math.PI / 2;
     jackals[0].carriesCharge = true; jackals[0].role = 'carrierA';
     jackals[0].state = 'hold'; jackals[0].holdUntil = now + 999;
@@ -818,6 +898,9 @@ function stageShot(kind) {
     hud.objective('DEFEND SITE A — STOP THE CARRIER', '#ff5a4a');
     hud.addKill('You', 'Rook', true, 'warden');
     hud.addKill('Fang', 'Hale', false, 'jackal');
+    // Squad comms as the live game produces them when a bot sights the
+    // player (bots are frozen for the shot, so stage the same line).
+    hud.addComms('Rook: contact A-long!', 'jackal');
   } else if (kind === 'buy') {
     // Round 3, 1-1, four kills, Hornet bought in round 2:
     // 800 + 3250 + 1900 + 4x300 - 1500 = $5,650.
@@ -847,6 +930,25 @@ function stageShot(kind) {
     jackals[2].pos.set(27, 0, -19); jackals[2].yaw = Math.PI / 2; jackals[2].state = 'hold'; jackals[2].holdUntil = now + 999;
     player.defuseT = 1.8;
     hud.setChannel('DEFUSING CHARGE…', 1.8 / 5);
+  } else if (kind === 'end') {
+    // Round 1 won by defusing the charge at Site A: the charge was
+    // planted (real forcePlant), then defused through the exact E-key
+    // completion path (defuseWin). The round-end panel now states the
+    // verdict, the reason, the score, the money delta and the
+    // next-round countdown — the live proof that a round ends and the
+    // next one starts. Player +$3,250 for the win.
+    rounds.phase = 'live'; rounds.phaseT = 60;
+    window.__bastion.forcePlant('A');
+    // Stand back west of the site looking across it: the SITE A wall
+    // sign reads in full behind the panel (it proves the site), the
+    // site ring + guard bot fill the frame behind the panel.
+    player.pos.set(15, 0, -13);
+    player.yaw = Math.atan2(-(24 - 15), -(-16 + 13));
+    player.pitch = Math.atan2(0.8 - 1.62, 9.5);
+    jackals[2].pos.set(27, 0, -19); jackals[2].yaw = Math.PI / 2; jackals[2].state = 'hold'; jackals[2].holdUntil = now + 999;
+    hud.addKill('You', 'Rook', true, 'warden');
+    hud.addComms('Mira: defusing now!', 'warden');
+    window.__bastion.defuseWin();
   } else if (kind === 'score') {
     rounds.scoreW = 4; rounds.scoreJ = 3; rounds.round = 8;
     rounds.playerKills = 9; rounds.playerDeaths = 4;

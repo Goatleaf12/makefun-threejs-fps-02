@@ -82,6 +82,21 @@
   #killfeed { position: fixed; right: 28px; top: 64px; text-align: right; font-size: 13px; }
   .kf-row { margin-bottom: 3px; text-shadow: 0 1px 5px rgba(0,0,0,.9); }
   .kf-x { color: var(--accent); margin: 0 4px; }
+  #comms { position: fixed; right: 28px; top: 168px; text-align: right; font-size: 12px; font-style: italic; }
+  .comms-row { margin-bottom: 3px; text-shadow: 0 1px 5px rgba(0,0,0,.9); }
+  #nameplates { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .plate { position: fixed; transform: translate(-50%, -100%); text-align: center; display: none; }
+  .plate-name { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: #ffb37a;
+    text-shadow: 0 1px 4px rgba(0,0,0,.95); }
+  .plate-bar { width: 44px; height: 4px; margin: 2px auto 0; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); }
+  .plate-fill { height: 100%; width: 100%; background: #ff9a4a; }
+  #roundEnd { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 520px; max-width: 92vw;
+    background: var(--panel); border: 1px solid var(--hairline); padding: 26px 30px; display: none; text-align: center; }
+  #roundEndTitle { font-size: 40px; font-weight: 800; letter-spacing: .08em; }
+  #roundEndReason { font-size: 16px; margin-top: 8px; }
+  #roundEndScore { font-size: 20px; font-weight: 700; color: var(--accent); margin-top: 12px; letter-spacing: .1em; }
+  #roundEndMoney { font-size: 15px; color: var(--muted); margin-top: 4px; }
+  #roundEndNext { font-size: 13px; letter-spacing: .2em; color: var(--ink); margin-top: 14px; }
   #banner { position: fixed; left: 50%; top: 34%; transform: translate(-50%,-50%); font-size: 46px; font-weight: 800;
     letter-spacing: .06em; text-shadow: 0 3px 14px rgba(0,0,0,.9); display: none; text-align: center; white-space: nowrap; }
   #bannerSub { position: fixed; left: 50%; top: calc(34% + 44px); transform: translateX(-50%); font-size: 17px;
@@ -112,7 +127,7 @@
   #scoreboard .sb-score { text-align: center; color: var(--accent); font-weight: 700; margin-bottom: 10px; }
   #scoreboard table { width: 100%; border-collapse: collapse; font-size: 14px; }
   #scoreboard td, #scoreboard th { padding: 5px 6px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.07); }
-  #startScreen { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.80); display: flex; align-items: center;
+  #startScreen { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.62); display: flex; align-items: center;
     justify-content: center; flex-direction: column; text-align: center; pointer-events: auto; z-index: 10; }
   #startScreen h1 { font-size: 46px; letter-spacing: .18em; margin: 0; color: var(--accent); }
   #startScreen h3 { margin: 6px 0 0; font-size: 15px; letter-spacing: .3em; color: var(--muted); font-weight: 500; }
@@ -149,6 +164,15 @@
   <div id="objective"></div>
   <div id="moneyBox"><div id="money" class="mono">$800</div></div>
   <div id="killfeed"></div>
+  <div id="comms"></div>
+  <div id="nameplates"></div>
+  <div id="roundEnd">
+    <div id="roundEndTitle"></div>
+    <div id="roundEndReason"></div>
+    <div id="roundEndScore"></div>
+    <div id="roundEndMoney"></div>
+    <div id="roundEndNext"></div>
+  </div>
   <div id="crosshair"><i></i><i></i><i></i><i></i><i class="dot"></i></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
   <div id="damageDir"><i></i></div>

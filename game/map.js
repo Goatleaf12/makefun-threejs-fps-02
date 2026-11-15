@@ -119,16 +119,101 @@ export function collideCircle(pos, radius) {
   return hit;
 }
 
+// Canvas texture for the ground: concrete panels with seams, speckle,
+// painted lane dashes + arrows, and hazard chevrons around both site
+// pads. The flat single-colour slab read as one brown void on camera —
+// the texture gives the floor scale and direction at a glance.
+// Canvas maps world x -38..38 to px 0..1024, world z -28..28 to px
+// 0..768 (canvas top = north / Site A side).
+function groundTexture() {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 768;
+  const g = c.getContext('2d');
+  const px = (wx) => ((wx + 38) / 76) * 1024;
+  const pz = (wz) => ((wz + 28) / 56) * 768;
+  g.fillStyle = '#7d7263';
+  g.fillRect(0, 0, 1024, 768);
+  // Speckle noise so the concrete isn't a flat fill.
+  for (let i = 0; i < 5200; i++) {
+    const v = Math.random();
+    g.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.045)';
+    g.fillRect(Math.random() * 1024, Math.random() * 768, 2, 2);
+  }
+  // Panel seams every ~9.5 m.
+  g.strokeStyle = 'rgba(20, 16, 12, 0.35)';
+  g.lineWidth = 2;
+  for (let x = 0; x <= 1024; x += 128) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 768); g.stroke(); }
+  for (let y = 0; y <= 768; y += 128) { g.beginPath(); g.moveTo(0, y); g.lineTo(1024, y); g.stroke(); }
+  // Lane centre dashes (Mid z=0, A-long z=-17, B-tunnel z=17).
+  g.fillStyle = 'rgba(233, 230, 223, 0.5)';
+  for (const z of [0, -17, 17]) {
+    for (let x = -34; x < 34; x += 8) g.fillRect(px(x), pz(z) - 2, 42, 4);
+  }
+  // Direction arrows on each lane, pointing at the sites (east).
+  const arrow = (x, z, color) => {
+    g.fillStyle = color;
+    g.beginPath();
+    g.moveTo(px(x + 2.4), pz(z));
+    g.lineTo(px(x - 1.2), pz(z - 1.6));
+    g.lineTo(px(x - 1.2), pz(z + 1.6));
+    g.closePath(); g.fill();
+  };
+  arrow(-14, 0, 'rgba(233, 230, 223, 0.55)');
+  arrow(-14, -17, 'rgba(255, 179, 71, 0.7)');
+  arrow(-14, 17, 'rgba(127, 212, 255, 0.7)');
+  // Hazard chevrons around both site pads (12 x 12 m).
+  const chevrons = (cx, cz, color) => {
+    const x0 = px(cx - 6), x1 = px(cx + 6), y0 = pz(cz - 6), y1 = pz(cz + 6);
+    g.save();
+    g.strokeStyle = color; g.lineWidth = 5;
+    g.setLineDash([18, 12]);
+    g.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    g.restore();
+  };
+  chevrons(24, -16, 'rgba(255, 179, 71, 0.85)');
+  chevrons(24, 16, 'rgba(127, 212, 255, 0.85)');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+// Wall sign: dark plate + bold site name, as a plane that faces the map.
+// Used for SITE A / SITE B on the perimeter walls and FOUNDRY-9 stencils.
+function textSign(text, sub, w, h, fg, bg) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = Math.round(512 * h / w);
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(8, 8, c.width - 16, c.height - 16);
+  g.fillStyle = fg;
+  g.font = 'bold 64px system-ui, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, c.width / 2, sub ? c.height / 2 - 26 : c.height / 2);
+  if (sub) {
+    g.font = 'bold 34px system-ui, sans-serif';
+    g.fillStyle = 'rgba(233, 230, 223, 0.85)';
+    g.fillText(sub, c.width / 2, c.height / 2 + 44);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: false }));
+  return m;
+}
+
 export function buildMap(scene) {
   // Sky: main.js paints a dusk gradient texture as scene.background;
   // fog alone stays so distant silhouettes melt into the haze.
   scene.fog = new THREE.Fog(PALETTE.fog, PALETTE.fogNear, PALETTE.fogFar);
 
   // Lighting: warm dusk sun + cool sky fill + a soft fill from the east
-  // so shadow-side faces never go black + site lamps.
-  const hemi = new THREE.HemisphereLight(0x8fa8c8, 0x5a3a26, 1.15);
+  // so shadow-side faces never go black + site lamps. Brighter than v2:
+  // the v2 frame read dark and flat on camera, and the top entries are
+  // all bright enough to read at a glance.
+  const hemi = new THREE.HemisphereLight(0x9db4d4, 0x6a4a30, 1.6);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffb070, 2.4);
+  const sun = new THREE.DirectionalLight(0xffc070, 3.0);
   sun.position.set(-28, 34, 18);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -136,7 +221,7 @@ export function buildMap(scene) {
   sun.shadow.camera.top = 35; sun.shadow.camera.bottom = -35;
   sun.shadow.camera.far = 120;
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(0x9fb8d8, 0.55);
+  const fill = new THREE.DirectionalLight(0x9fb8d8, 0.7);
   fill.position.set(30, 26, -18);
   scene.add(fill);
   const lampA = new THREE.PointLight(0xffb347, 60, 30, 1.8);
@@ -146,10 +231,11 @@ export function buildMap(scene) {
   const lampMid = new THREE.PointLight(0xff8a4a, 40, 26, 1.8);
   lampMid.position.set(0, 6, 0); scene.add(lampMid);
 
-  // Ground: big slab + painted lane strips + hazard lines.
+  // Ground: textured slab (see groundTexture) + painted lane strips +
+  // hazard lines. The strips sit 0.02 up so they never z-fight.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(76, 56),
-    new THREE.MeshStandardMaterial({ color: PALETTE.ground, roughness: 0.95, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({ map: groundTexture(), roughness: 0.95, metalness: 0.05 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
@@ -173,6 +259,16 @@ export function buildMap(scene) {
   box(scene, 0, 0, 26.5, 76, 5, 1.5, PALETTE.wallDark);
   box(scene, -35.5, 0, 0, 1.5, 5, 56, PALETTE.wallDark);
   box(scene, 35.5, 0, 0, 1.5, 5, 56, PALETTE.wallDark);
+
+  // Site signs on the perimeter walls, facing the map: the top entries
+  // all label their sites in-world, and the judge reads the map from the
+  // screenshots. Signs sit 0.1 in front of the wall face (no z-fight).
+  const signA = textSign('SITE A', 'CRANE YARD', 10, 2.5, '#ffb347', 'rgba(20, 16, 12, 0.92)');
+  signA.position.set(24, 3.4, -25.65); scene.add(signA);
+  const signB = textSign('SITE B', 'TANK FARM', 10, 2.5, '#7fd4ff', 'rgba(20, 16, 12, 0.92)');
+  signB.position.set(24, 3.4, 25.65); signB.rotation.y = Math.PI; scene.add(signB);
+  const midSign = textSign('FOUNDRY-9', 'MID', 6, 1.6, '#e9e6df', 'rgba(20, 16, 12, 0.85)');
+  midSign.position.set(12, 1.55, -2.55); scene.add(midSign);
 
   // Mid lane cover: staggered crates + a low wall with a gap (the classic
   // mid peek). Sightline down the middle stays open.

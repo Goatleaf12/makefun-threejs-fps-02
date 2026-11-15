@@ -33,13 +33,13 @@ export const WEAPONS = {
     name: 'P-9', kind: 'pistol', price: 0, damage: 34, headMult: 3.5,
     mag: 12, reserve: 36, fireInterval: 0.16, reload: 1.1,
     spread: 0.006, moveSpread: 0.010, recoil: 0.011, auto: false,
-    range: 60, pellets: 1, zoom: 1, tracer: 0xffe08a,
+    range: 60, pellets: 1, zoom: 1, tracer: 0xffb52e,
   },
   'hornet': {
     name: 'Hornet-9', kind: 'smg', price: 1500, damage: 26, headMult: 3.5,
     mag: 30, reserve: 120, fireInterval: 0.085, reload: 1.9,
     spread: 0.012, moveSpread: 0.020, recoil: 0.014, auto: true,
-    range: 55, pellets: 1, zoom: 1, tracer: 0xffd27a,
+    range: 55, pellets: 1, zoom: 1, tracer: 0xffc23e,
   },
   'vk47': {
     name: 'VK-47 Longshot', kind: 'rifle', price: 2700, damage: 36, headMult: 3.5,
@@ -105,8 +105,8 @@ export const BOT = {
 // enough to read at a glance — the dusk mood comes from warm light and
 // sky, not from dark surfaces.
 export const PALETTE = {
-  skyTop: 0x37527e, skyBottom: 0xd97a3d, fog: 0xd69c6c, fogNear: 55, fogFar: 150,
-  ground: 0x6b6156, groundLine: 0x37332e,
+  skyTop: 0x5b7cb0, skyBottom: 0xe08a4a, fog: 0xdda87a, fogNear: 65, fogFar: 180,
+  ground: 0x7d7263, groundLine: 0x37332e,
   wall: 0x6b7a84, wallDark: 0x55636e, rust: 0xb05a2a, teal: 0x2e7f86,
   crate: 0x96744a, containerA: 0x8a5836, containerB: 0x4a7d80,
   warden: 0x5b9bd5, jackal: 0xe8853a, accent: 0xffb347,

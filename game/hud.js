@@ -17,7 +17,9 @@ export class HUD {
       'weaponSlots', 'timer', 'score', 'money', 'roundLabel', 'crosshair', 'hitmarker', 'killfeed',
       'banner', 'bannerSub', 'objective', 'buyMenu', 'buyList', 'scoreboard',
       'scoreRows', 'flash', 'damageDir', 'reloadHint', 'hint', 'plantBar', 'plantFill',
-      'plantLabel', 'centerMsg', 'armorBarWrap', 'armorBar', 'minimap', 'dmgLayer'];
+      'plantLabel', 'centerMsg', 'armorBarWrap', 'armorBar', 'minimap', 'dmgLayer',
+      'comms', 'roundEnd', 'roundEndTitle', 'roundEndReason', 'roundEndScore',
+      'roundEndMoney', 'roundEndNext', 'nameplates'];
     for (const id of ids) this.el[id] = root.querySelector('#' + id);
     this.killfeedTimer = 0;
     this.bannerTimer = 0;
@@ -132,6 +134,9 @@ export class HUD {
     c.strokeStyle = 'rgba(233, 230, 223, 0.35)';
     c.strokeRect(X(-38), Z(-28), X(38) - X(-38), Z(28) - Z(-28));
     // Sites: ring + name. Planted charge pulses red on its site.
+    // Labels are drawn LAST (after dots and the player arrow) with a
+    // dark backing rect: in v2 the player arrow parked on top of the
+    // SITE A text and the label was unreadable on camera.
     const sites = [
       { x: 24, z: -16, label: 'SITE A', sub: 'CRANE YARD', color: '#ffb347' },
       { x: 24, z: 16, label: 'SITE B', sub: 'TANK FARM', color: '#7fd4ff' },
@@ -143,15 +148,6 @@ export class HUD {
       c.strokeStyle = isPlant ? '#ff2a1a' : s.color;
       c.lineWidth = 1.6;
       c.stroke();
-      // Labels sit LEFT of the ring: both sites are on the map's right
-      // edge, so text to the right would clip off the canvas.
-      c.font = 'bold 8px system-ui, sans-serif';
-      c.fillStyle = isPlant ? '#ff5a4a' : s.color;
-      c.textAlign = 'right';
-      c.fillText(s.label, X(s.x) - 9, Z(s.z) - 1);
-      c.font = '7px system-ui, sans-serif';
-      c.fillStyle = 'rgba(233, 230, 223, 0.6)';
-      c.fillText(s.sub, X(s.x) - 9, Z(s.z) + 8);
     }
     // Squad dots (Wardens, blue); the player is a white arrow.
     for (const b of bots) {
@@ -172,6 +168,21 @@ export class HUD {
       c.fillStyle = '#ffffff';
       c.fill();
       c.restore();
+    }
+    // Labels last, on a backing rect, so dots and the arrow can never
+    // cover them.
+    for (const s of sites) {
+      const isPlant = planted && plantSite === s.label.slice(-1);
+      const lx = X(s.x) - 9, ly = Z(s.z);
+      c.fillStyle = 'rgba(16, 19, 24, 0.78)';
+      c.fillRect(lx - 52, ly - 11, 54, 19);
+      c.font = 'bold 8px system-ui, sans-serif';
+      c.fillStyle = isPlant ? '#ff5a4a' : s.color;
+      c.textAlign = 'right';
+      c.fillText(s.label, lx, ly - 1);
+      c.font = '7px system-ui, sans-serif';
+      c.fillStyle = 'rgba(233, 230, 223, 0.6)';
+      c.fillText(s.sub, lx, ly + 8);
     }
   }
 
@@ -197,6 +208,63 @@ export class HUD {
     this.el.killfeed.prepend(div);
     while (this.el.killfeed.children.length > 5) this.el.killfeed.lastChild.remove();
   }
+
+  // Squad comms: a bot calling out a contact ("Fang: contact mid!").
+  // Proves the bots see, react and communicate — the top entries all
+  // show a contact feed. Kept to 4 rows, newest first.
+  addComms(text, team) {
+    const div = document.createElement('div');
+    div.className = 'comms-row';
+    const tc = team === 'warden' ? '#7fb8ff' : '#ff9a4a';
+    div.innerHTML = `<span style="color:${tc}">${text}</span>`;
+    this.el.comms.prepend(div);
+    while (this.el.comms.children.length > 4) this.el.comms.lastChild.remove();
+  }
+
+  // Enemy nameplates: one pooled DOM node per Jackal, positioned by
+  // main.js at the bot's projected head (only when visible + in front).
+  // Name + HP bar + a charge diamond on the carrier. Wardens get none —
+  // the player already sees their squad on the minimap.
+  updateNameplates(items) {
+    const layer = this.el.nameplates;
+    while (layer.children.length < items.length) {
+      const div = document.createElement('div');
+      div.className = 'plate';
+      div.innerHTML = '<div class="plate-name"></div><div class="plate-bar"><div class="plate-fill"></div></div>';
+      layer.appendChild(div);
+    }
+    for (let i = 0; i < layer.children.length; i++) {
+      const div = layer.children[i];
+      if (i >= items.length) { div.style.display = 'none'; continue; }
+      const it = items[i];
+      div.style.display = 'block';
+      div.style.left = Math.round(it.sx) + 'px';
+      div.style.top = Math.round(it.sy) + 'px';
+      div.querySelector('.plate-name').textContent = (it.carrier ? '◆ ' : '') + it.name;
+      const fill = div.querySelector('.plate-fill');
+      fill.style.width = Math.max(0, Math.min(100, it.hp)) + '%';
+      fill.style.background = it.hp > 50 ? '#ff9a4a' : it.hp > 25 ? '#ffb347' : '#ff5a4a';
+    }
+  }
+
+  // Full round-end panel: the round's verdict, reason, score, money
+  // delta and the next-round countdown. A transient banner could not
+  // prove "the round ends, then the next one starts" on camera — this
+  // panel states it outright, and the live countdown is the restart.
+  showRoundEnd(title, reason, scoreLine, moneyLine, color) {
+    this.el.roundEndTitle.textContent = title;
+    this.el.roundEndTitle.style.color = color;
+    this.el.roundEndReason.textContent = reason;
+    this.el.roundEndScore.textContent = scoreLine;
+    this.el.roundEndMoney.textContent = moneyLine;
+    this.el.roundEnd.style.display = 'block';
+  }
+
+  setRoundEndCountdown(sec) {
+    this.el.roundEndNext.textContent = 'NEXT ROUND IN ' + Math.max(0, Math.ceil(sec)) + '…';
+  }
+
+  hideRoundEnd() { this.el.roundEnd.style.display = 'none'; }
 
   banner(title, sub, color = '#e9e6df', seconds = 4) {
     this.el.banner.textContent = title;
@@ -231,6 +299,10 @@ export class HUD {
     this.el.plantLabel.textContent = label;
     this.el.plantFill.style.width = Math.round(frac * 100) + '%';
   }
+
+  // True while a plant/defuse channel bar is on screen — used by the
+  // live objective line so it never clobbers a channel message.
+  channelActive() { return this.el.plantBar.style.display === 'block'; }
 
   showBuy(money, loadout, onBuy) {
     const list = this.el.buyList;
