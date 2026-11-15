@@ -52,11 +52,28 @@
   #health { font-size: 44px; font-weight: 700; line-height: 1; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
   #healthBarWrap { width: 190px; height: 8px; background: rgba(255,255,255,.15); margin-top: 6px; border: 1px solid var(--hairline); }
   #healthBar { height: 100%; width: 100%; background: var(--good); }
+  #armorBarWrap { width: 190px; height: 6px; background: rgba(255,255,255,.15); margin-top: 4px; border: 1px solid var(--hairline); display: none; }
+  #armorBar { height: 100%; width: 100%; background: var(--warden); }
   #armor { font-size: 12px; letter-spacing: .14em; color: var(--warden); margin-top: 4px; }
   #ammoBox { position: fixed; right: 28px; bottom: 22px; text-align: right; }
   #ammoMag { font-size: 52px; font-weight: 700; line-height: 1; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
   #ammoRes { font-size: 20px; color: var(--muted); }
   #weaponName { font-size: 13px; letter-spacing: .16em; color: var(--muted); margin-top: 2px; }
+  #weaponSlots { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin-top: 3px; }
+  #weaponSlots b { color: var(--ink); }
+
+  /* Minimap: top-left, live positions of the squad + sites. Hidden
+     until deploy — before the game starts it is just an empty box. */
+  #minimap { position: fixed; left: 14px; top: 14px; width: 168px; height: 124px;
+    border: 1px solid var(--hairline); background: rgba(16, 19, 24, 0.72); display: none; }
+
+  /* Floating damage numbers: plain static nodes, lifted after 3 s of
+     game time by hud.pruneDamageNumbers (see the note there). */
+  #dmgLayer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .dmg-num { position: fixed; font-weight: 800; font-size: 22px; color: #fff;
+    text-shadow: 0 2px 6px rgba(0,0,0,.9); margin: -15px 0 0 -13px; white-space: nowrap; }
+  .dmg-num.head { color: var(--accent); font-size: 27px; }
+  .dmg-num.kill { color: var(--bad); }
   #reloadHint { font-size: 13px; color: var(--accent); letter-spacing: .14em; display: none; }
   #moneyBox { position: fixed; right: 28px; top: 16px; text-align: right; }
   #money { font-size: 22px; font-weight: 700; color: var(--accent); text-shadow: 0 2px 8px rgba(0,0,0,.7); }
@@ -95,12 +112,17 @@
   #scoreboard .sb-score { text-align: center; color: var(--accent); font-weight: 700; margin-bottom: 10px; }
   #scoreboard table { width: 100%; border-collapse: collapse; font-size: 14px; }
   #scoreboard td, #scoreboard th { padding: 5px 6px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.07); }
-  #startScreen { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.88); display: flex; align-items: center;
+  #startScreen { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.80); display: flex; align-items: center;
     justify-content: center; flex-direction: column; text-align: center; pointer-events: auto; z-index: 10; }
-  #startScreen h1 { font-size: 52px; letter-spacing: .18em; margin: 0; color: var(--accent); }
+  #startScreen h1 { font-size: 46px; letter-spacing: .18em; margin: 0; color: var(--accent); }
   #startScreen h3 { margin: 6px 0 0; font-size: 15px; letter-spacing: .3em; color: var(--muted); font-weight: 500; }
-  #startScreen p { max-width: 560px; color: var(--ink); font-size: 15px; line-height: 1.55; margin: 18px 0 0; }
-  #startScreen .keys { color: var(--muted); font-size: 13px; margin-top: 14px; line-height: 1.7; }
+  #startScreen p { max-width: 640px; color: var(--ink); font-size: 15px; line-height: 1.55; margin: 14px 0 0; }
+  #startScreen .ctl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 20px;
+    max-width: 780px; margin: 16px auto 0; text-align: left; }
+  #startScreen .ctl-grid h4 { margin: 0 0 4px; font-size: 12px; letter-spacing: .22em; color: var(--accent); }
+  #startScreen .ctl-grid p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--ink); max-width: none; }
+  #startScreen .acc-line { color: var(--accent); font-weight: 700; font-size: 14px; margin: 14px 0 0; letter-spacing: .02em; }
+  #startScreen .team-note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
   #startBtn { margin-top: 26px; padding: 13px 34px; font-size: 17px; font-weight: 700; letter-spacing: .12em;
     background: var(--accent); color: #181410; border: none; cursor: pointer; }
   #startBtn:hover { filter: brightness(1.1); }
@@ -117,6 +139,8 @@
 <div id="hud">
   <div id="vignette"></div>
   <div id="flash"></div>
+  <div id="dmgLayer"></div>
+  <canvas id="minimap" width="168" height="124"></canvas>
   <div id="topbar">
     <div id="timer" class="mono">1:40</div>
     <div id="score">WARDENS 0 — 0 JACKALS</div>
@@ -131,11 +155,13 @@
   <div id="healthBox">
     <div id="health" class="mono">100</div>
     <div id="healthBarWrap"><div id="healthBar"></div></div>
+    <div id="armorBarWrap"><div id="armorBar"></div></div>
     <div id="armor" class="mono"></div>
   </div>
   <div id="ammoBox">
     <div><span id="ammoMag" class="mono">12</span> <span id="ammoRes" class="mono">/ 36</span></div>
     <div id="weaponName">P-9</div>
+    <div id="weaponSlots"></div>
     <div id="reloadHint">RELOADING…</div>
   </div>
   <div id="hint"></div>
@@ -158,13 +184,27 @@
   <div id="startScreen">
     <h1>BASTION PROTOCOL</h1>
     <h3>TACTICAL FPS — FOUNDRY-9</h3>
-    <p>You are a Warden. Five Jackals are pushing the foundry with a charge.
-       Hold the sites, or hunt them down — first to 7 rounds takes the match.
-       Plant the charge and the Jackals win; defuse it and the foundry stands.</p>
-    <div class="keys">WASD move · SHIFT slow-walk · CTRL crouch · SPACE jump · MOUSE aim · CLICK fire<br>
-      RIGHT-CLICK scope · R reload · 1/2/3 weapons · 4/5/6 grenades · B buy · E plant / defuse (hold)<br>
-      TAB scoreboard · M mute · ESC pause</div>
-    <button id="startBtn">CLICK TO DEPLOY</button>
+    <p>Two squads, one foundry. You deploy with the Wardens — five Jackals are
+       pushing in with a charge. If they plant it at Site A or Site B and the
+       fuse blows, the foundry falls. Hold the sites, or defuse the charge.
+       First to 7 rounds takes the match.</p>
+    <div class="ctl-grid">
+      <div>
+        <h4>MOVE</h4>
+        <p>WASD move · SHIFT quiet walk<br>SPACE jump · CTRL crouch</p>
+      </div>
+      <div>
+        <h4>FIGHT</h4>
+        <p>MOUSE aim · CLICK fire · RIGHT-CLICK scope<br>R reload · 1/2/3 or wheel — switch weapon<br>4/5/6 grenades · G cycle grenade</p>
+      </div>
+      <div>
+        <h4>OBJECTIVE</h4>
+        <p>E hold to plant / defuse<br>B buy menu · TAB scoreboard<br>M mute · ESC pause</p>
+      </div>
+    </div>
+    <div class="acc-line">Stop to shoot — moving fire sprays wide. Headshots pay triple.</div>
+    <button id="startBtn">DEPLOY AS WARDEN</button>
+    <div class="team-note">Wardens defend the foundry — the Jackals attack as bots. Desktop + mouse needed.</div>
   </div>
   <div id="pauseScreen">
     <h2>PAUSED</h2>

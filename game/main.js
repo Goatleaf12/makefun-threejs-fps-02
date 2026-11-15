@@ -31,7 +31,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.2;
 document.getElementById('game').appendChild(renderer.domElement);
 
 buildMap(scene);
@@ -41,8 +41,8 @@ buildMap(scene);
   c.width = 4; c.height = 256;
   const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 0, 256);
-  gr.addColorStop(0, '#2b3a55');
-  gr.addColorStop(0.55, '#7a5a6a');
+  gr.addColorStop(0, '#37527e');
+  gr.addColorStop(0.55, '#a8745e');
   gr.addColorStop(1, '#d97a3d');
   g.fillStyle = gr;
   g.fillRect(0, 0, 4, 256);
@@ -78,20 +78,39 @@ const chargeLight = new THREE.PointLight(0xff2a1a, 8, 8, 1.6);
 chargeLight.visible = false;
 scene.add(chargeLight);
 
-// Weapon viewmodel: a simple gun that bobs with movement.
+// Weapon viewmodel: a rifle the player can actually read — gunmetal
+// body, orange accent stripe, magazine, grip and front sight. A small
+// warm light rides with the camera so it is never a black slab, even
+// when the player faces the shadow side of the map.
 const viewGun = new THREE.Group();
 const vgBody = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.13, 0.62),
-  new THREE.MeshStandardMaterial({ color: 0x1c1e20, roughness: 0.35, metalness: 0.7 }));
+  new THREE.MeshStandardMaterial({ color: 0x4b525a, roughness: 0.45, metalness: 0.55 }));
 const vgBarrel = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.34),
-  new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.3, metalness: 0.8 }));
+  new THREE.MeshStandardMaterial({ color: 0x33373c, roughness: 0.3, metalness: 0.8 }));
 vgBarrel.position.set(0, 0.03, -0.45);
 const vgSight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.06, 0.08),
-  new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.3, metalness: 0.6 }));
+  new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.3, metalness: 0.6 }));
 vgSight.position.set(0, 0.1, -0.1);
-viewGun.add(vgBody, vgBarrel, vgSight);
+const vgStripe = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.02, 0.4),
+  new THREE.MeshStandardMaterial({ color: 0xcc7a1e, roughness: 0.5, metalness: 0.3, emissive: 0xff8a1a, emissiveIntensity: 0.15 }));
+vgStripe.position.set(0, 0.075, 0.0);
+const vgMag = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.1),
+  new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.5, metalness: 0.6 }));
+vgMag.position.set(0, -0.1, -0.05);
+const vgGrip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.08),
+  new THREE.MeshStandardMaterial({ color: 0x2c2f33, roughness: 0.6, metalness: 0.4 }));
+vgGrip.position.set(0, -0.07, 0.14);
+const vgFrontSight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.03),
+  new THREE.MeshStandardMaterial({ color: 0xcc7a1e, roughness: 0.4, metalness: 0.3, emissive: 0xff8a1a, emissiveIntensity: 0.25 }));
+vgFrontSight.position.set(0, 0.09, -0.44);
+viewGun.add(vgBody, vgBarrel, vgSight, vgStripe, vgMag, vgGrip, vgFrontSight);
 viewGun.position.set(0.3, -0.26, -0.62);
 viewGun.scale.setScalar(0.8);
 camera.add(viewGun);
+// Camera light: lights the viewmodel (and nothing else, at 3 m range).
+const camLight = new THREE.PointLight(0xfff2dd, 2.5, 3, 1.2);
+camLight.position.set(0.25, 0.15, -0.3);
+camera.add(camLight);
 scene.add(camera);
 
 // --- input ---------------------------------------------------------------
@@ -118,6 +137,11 @@ addEventListener('keyup', (e) => {
   keys.delete(e.code);
   if (e.code === 'Tab') toggleScoreboard(false);
 });
+// Mouse wheel cycles the two weapon slots (1 = primary, 2 = pistol).
+addEventListener('wheel', (e) => {
+  if (!started || paused || !player.alive) return;
+  switchWeapon(e.deltaY > 0 ? 'p9' : 'primary');
+}, { passive: true });
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== renderer.domElement || !player.alive) return;
   player.yaw -= e.movementX * 0.0021;
@@ -161,6 +185,7 @@ addEventListener('resize', () => {
 function startGame() {
   audio.ensureAudio();
   document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('minimap').style.display = 'block';
   if (!AUTOPLAY) renderer.domElement.requestPointerLock();
   started = true;
   resetRoundPositions();
@@ -206,6 +231,8 @@ function hasLineOfSight(ax, ay, az, bx, by, bz) {
 // --- shooting ---------------------------------------------------------------
 const _shotDir = new THREE.Vector3();
 const _shotOrigin = new THREE.Vector3();
+const _proj = new THREE.Vector3();
+let viewKick = 0;   // viewmodel kick after a shot; decays in render()
 function playerShoot() {
   const wid = playerLoadout.current;
   if (!canFire(playerLoadout, now)) {
@@ -217,12 +244,13 @@ function playerShoot() {
     return;
   }
   const spread = player.fireShot(playerLoadout, now);
+  viewKick = 0.09;
   const w = WEAPONS[wid];
   player.eye(_shotOrigin);
   player.viewDir(_shotDir);
   audio.playShot(w.kind, 0);
-  // Muzzle flash at the viewmodel tip.
-  const muzzle = _shotOrigin.clone().add(_shotDir.clone().multiplyScalar(0.8));
+  // Muzzle flash at the barrel tip (just past the viewmodel's muzzle).
+  const muzzle = _shotOrigin.clone().add(_shotDir.clone().multiplyScalar(1.05));
   muzzle.y -= 0.12;
   fx.muzzle(muzzle, _shotDir);
   for (let p = 0; p < w.pellets; p++) {
@@ -244,6 +272,18 @@ function playerShoot() {
       const part = hit.object.userData.part;
       const dmg = computeDamage(wid, part, hit.distance, bot.loadout.helmet, bot.loadout.armor > 0);
       damageBot(bot, dmg.hp, part, 'You');
+      // Floating damage number at the hit point — offset up-right of the
+      // crosshair so it never sits under the hitmarker itself.
+      _proj.copy(hit.point).project(camera);
+      if (_proj.z < 1) {
+        hud.spawnDamageNumber(
+          (_proj.x * 0.5 + 0.5) * innerWidth + 34,
+          (-_proj.y * 0.5 + 0.5) * innerHeight - 28,
+          String(Math.round(dmg.hp)),
+          bot.hp <= 0 ? 'kill' : part === 'head' ? 'head' : 'body',
+          now,
+        );
+      }
       fx.tracer(_shotOrigin, hit.point, w.tracer);
       fx.burst(hit.point, part === 'head' ? 10 : 6, part === 'head' ? 0xff5a4a : 0xc0392b, 2, 0.4);
       audio.playHit(part === 'head');
@@ -542,6 +582,7 @@ function endRound(winner, reason) {
 
 // --- fixed-step simulation ---------------------------------------------------------
 let acc = 0;
+let mapAcc = 0;   // minimap / weapon-card refresh accumulator (10 Hz)
 let lastT = performance.now();
 
 function simulate(dt) {
@@ -656,6 +697,15 @@ function simulate(dt) {
   const blind = player.flashUntil > now;
   document.getElementById('flash').style.opacity = blind ? '0.95' : '';
   hud.update(dt);
+  // Slow HUD (10 Hz): minimap + weapon card + damage-number pruning —
+  // canvas redraws and DOM writes are wasted work every tick.
+  mapAcc += dt;
+  if (mapAcc >= 0.1) {
+    mapAcc = 0;
+    hud.drawMinimap(player, bots, rounds.charge.planted, rounds.charge.site);
+    hud.setWeaponCard(playerLoadout);
+    hud.pruneDamageNumbers(now);
+  }
 }
 
 function render() {
@@ -668,10 +718,12 @@ function render() {
     camera.fov += (targetFov - camera.fov) * 0.25;
     camera.updateProjectionMatrix();
   }
-  // Viewmodel bob.
+  // Viewmodel bob + recoil kick.
   const bob = player.moving ? Math.sin(now * 11) * 0.012 : 0;
   viewGun.position.y = -0.26 + bob;
   viewGun.position.x = 0.3 + (player.zoomed ? -0.15 : 0);
+  viewKick *= 0.85;
+  viewGun.position.z = -0.62 + viewKick;
   viewGun.visible = player.alive;
   fx.update(1 / 60, camera);
   renderer.render(scene, camera);
@@ -722,6 +774,7 @@ window.__bastion = {
   },
   openBuy() { if (rounds.phase === 'buy') toggleBuy(); },
   showScoreboard() { toggleScoreboard(true); },
+  shoot() { playerShoot(); },
   start: startGame,
   player, rounds, bots,
 };
@@ -733,35 +786,71 @@ function stageShot(kind) {
   hud.banner('', '', '#e9e6df', 0.01);
   hud.center('', 0);
   hud.objective('', '#ffb347');
+  // Every staged state is honest about the economy: round, score, kills
+  // and money are set to values a real match could have produced (start
+  // $800, win +$3,250, loss +$1,900, kill +$300, minus the buys shown).
   if (kind === 'action') {
-    // Mid firefight: player at mid-west, two Jackals visible down the lane.
+    // Close fight at Site A: the carrier (red charge pack on his back)
+    // is 9 m out, a second Jackal guards the site, a Warden holds mid.
+    // The player owns the VK-47 + kevlar bought after winning round 1:
+    // 800 + 3250 + 2x300 - 2700 - 650 = $1,300.
     rounds.phase = 'live'; rounds.phaseT = 92;
-    player.pos.set(-10, 0, 0.5); player.yaw = -Math.PI / 2;
-    jackals[0].pos.set(8, 0, -1); jackals[0].yaw = Math.PI / 2; jackals[0].state = 'hold'; jackals[0].holdUntil = now + 999;
-    jackals[1].pos.set(12, 0, 2.5); jackals[1].yaw = Math.PI / 2; jackals[1].state = 'hold'; jackals[1].holdUntil = now + 999;
-    wardens[0].pos.set(-6, 0, 3); wardens[0].state = 'hold'; wardens[0].holdUntil = now + 999;
+    rounds.round = 2; rounds.scoreW = 1; rounds.scoreJ = 0;
+    rounds.playerKills = 2; rounds.money = 1300;
+    playerLoadout.primary = 'vk47';
+    playerLoadout.owned = { p9: true, vk47: true };
+    playerLoadout.mag = { p9: 12, vk47: 30 };
+    playerLoadout.reserve = { p9: 36, vk47: 90 };
+    playerLoadout.current = 'vk47';
+    playerLoadout.armor = 100; playerLoadout.helmet = true;
+    hud.setMoney(1300);
+    refreshWeaponHud();
+    player.pos.set(10, 0, -17);
+    player.yaw = -Math.PI / 2;
+    player.pitch = Math.atan2(0.95 - 1.62, 10);
+    jackals[0].pos.set(20, 0, -17); jackals[0].yaw = Math.PI / 2;
+    jackals[0].carriesCharge = true; jackals[0].role = 'carrierA';
+    jackals[0].state = 'hold'; jackals[0].holdUntil = now + 999;
+    jackals[1].pos.set(24, 0, -14); jackals[1].yaw = Math.PI / 2;
+    jackals[1].state = 'hold'; jackals[1].holdUntil = now + 999;
+    wardens[0].pos.set(2, 0, -13); wardens[0].yaw = -Math.PI / 2;
+    wardens[0].state = 'hold'; wardens[0].holdUntil = now + 999;
+    hud.objective('DEFEND SITE A — STOP THE CARRIER', '#ff5a4a');
     hud.addKill('You', 'Rook', true, 'warden');
     hud.addKill('Fang', 'Hale', false, 'jackal');
   } else if (kind === 'buy') {
+    // Round 3, 1-1, four kills, Hornet bought in round 2:
+    // 800 + 3250 + 1900 + 4x300 - 1500 = $5,650.
+    rounds.round = 3; rounds.scoreW = 1; rounds.scoreJ = 1;
+    rounds.playerKills = 4; rounds.money = 5650;
+    playerLoadout.primary = 'hornet';
+    playerLoadout.owned = { p9: true, hornet: true };
+    playerLoadout.mag = { p9: 12, hornet: 30 };
+    playerLoadout.reserve = { p9: 36, hornet: 120 };
+    playerLoadout.current = 'hornet';
+    refreshWeaponHud();
     rounds.phase = 'buy'; rounds.phaseT = 12;
     player.pos.set(-28, 0, 0); player.yaw = -Math.PI / 2;
-    rounds.money = 5400;
-    hud.setMoney(5400);
+    hud.setMoney(5650);
     hud.showBuy(rounds.money, playerLoadout, (id) => {
       const r = buyItem(playerLoadout, rounds.money, id);
       if (r.ok) { rounds.money -= r.cost; hud.setMoney(rounds.money); refreshWeaponHud(); }
     });
   } else if (kind === 'site') {
-    // Player at Site A edge, charge planted, fuse ticking, Jackal guarding.
+    // Player inside defuse range (2.9 m from the charge — the rule needs
+    // under 4 m), fuse ticking, Jackal guarding the site.
     rounds.phase = 'live'; rounds.phaseT = 60;
     window.__bastion.forcePlant('A');
-    player.pos.set(18, 0, -13); player.yaw = Math.atan2(-(24 - 18), -(-16 + 13));
+    player.pos.set(21.5, 0, -14.5);
+    player.yaw = Math.atan2(-(24 - 21.5), -(-16 + 14.5));
+    player.pitch = Math.atan2(0.8 - 1.62, 2.92);
     jackals[2].pos.set(27, 0, -19); jackals[2].yaw = Math.PI / 2; jackals[2].state = 'hold'; jackals[2].holdUntil = now + 999;
     player.defuseT = 1.8;
     hud.setChannel('DEFUSING CHARGE…', 1.8 / 5);
   } else if (kind === 'score') {
     rounds.scoreW = 4; rounds.scoreJ = 3; rounds.round = 8;
     rounds.playerKills = 9; rounds.playerDeaths = 4;
+    rounds.money = 2850;
     wardens[0].kills = 5; wardens[0].deaths = 3;
     wardens[1].kills = 3; wardens[1].deaths = 5;
     jackals[0].kills = 7; jackals[0].deaths = 4;

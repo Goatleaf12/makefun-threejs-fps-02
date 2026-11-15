@@ -15,7 +15,7 @@ const NAMES = {
   warden: ['Vex', 'Hale', 'Mira', 'Sable'],
   jackal: ['Rook', 'Fang', 'Nyx', 'Grit', 'Ash'],
 };
-const BODY_COLORS = { warden: 0x3f7fbf, jackal: 0xd96a1e };
+const BODY_COLORS = { warden: 0x5b9bd5, jackal: 0xe8853a };
 
 let botCounter = 0;
 
@@ -79,11 +79,23 @@ export class Bot {
     const chest = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.2, 0.38),
       new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.7 }));
     chest.position.y = 1.18; this.group.add(chest);
-    this.legsMesh = mk(0.5, 0.68, 0.34, 0x2c2f33, 0.34, 'legs');
+    // Bright team trim across the shoulders — the squad reads at a glance,
+    // even in the shadow side of the map.
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.07, 0.38),
+      new THREE.MeshBasicMaterial({ color: col }));
+    trim.position.y = 1.47; this.group.add(trim);
+    this.legsMesh = mk(0.5, 0.68, 0.34, 0x4a4f55, 0.34, 'legs');
     const gun = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.85),
-      new THREE.MeshStandardMaterial({ color: 0x181a1c, roughness: 0.4, metalness: 0.7 }));
+      new THREE.MeshStandardMaterial({ color: 0x3a4046, roughness: 0.4, metalness: 0.7 }));
     gun.position.set(0.28, 1.25, 0.35);
     this.group.add(gun);
+    // Charge pack on the back: only the bot carrying the charge shows it,
+    // so the objective is readable in a firefight at a glance.
+    this.chargePack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.14),
+      new THREE.MeshStandardMaterial({ color: 0x3a2020, roughness: 0.5, metalness: 0.4, emissive: 0xff2a1a, emissiveIntensity: 0.9 }));
+    this.chargePack.position.set(0, 1.15, 0.26);
+    this.chargePack.visible = false;
+    this.group.add(this.chargePack);
     // Team ring under the feet — reads instantly in a firefight.
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 24),
       new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
@@ -352,6 +364,7 @@ export class Bot {
   syncVisual(dt) {
     this.group.position.set(this.pos.x, this.pos.y, this.pos.z);
     this.group.rotation.y = this.yaw;
+    this.chargePack.visible = this.carriesCharge && this.alive;
     // Crouch the model slightly when holding a site (visual only).
     const targetY = this.state === 'hold' ? 0.92 : 1;
     this.group.scale.y += (targetY - this.group.scale.y) * Math.min(1, dt * 6);

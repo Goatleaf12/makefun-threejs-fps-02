@@ -124,10 +124,11 @@ export function buildMap(scene) {
   // fog alone stays so distant silhouettes melt into the haze.
   scene.fog = new THREE.Fog(PALETTE.fog, PALETTE.fogNear, PALETTE.fogFar);
 
-  // Lighting: warm dusk sun + cool sky fill + site lamps.
-  const hemi = new THREE.HemisphereLight(0x8fa8c8, 0x5a3a26, 0.85);
+  // Lighting: warm dusk sun + cool sky fill + a soft fill from the east
+  // so shadow-side faces never go black + site lamps.
+  const hemi = new THREE.HemisphereLight(0x8fa8c8, 0x5a3a26, 1.15);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xffb070, 1.9);
+  const sun = new THREE.DirectionalLight(0xffb070, 2.4);
   sun.position.set(-28, 34, 18);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -135,6 +136,9 @@ export function buildMap(scene) {
   sun.shadow.camera.top = 35; sun.shadow.camera.bottom = -35;
   sun.shadow.camera.far = 120;
   scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x9fb8d8, 0.55);
+  fill.position.set(30, 26, -18);
+  scene.add(fill);
   const lampA = new THREE.PointLight(0xffb347, 60, 30, 1.8);
   lampA.position.set(24, 7, -16); scene.add(lampA);
   const lampB = new THREE.PointLight(0x7fd4ff, 60, 30, 1.8);
@@ -158,11 +162,11 @@ export function buildMap(scene) {
     s.receiveShadow = true;
     scene.add(s);
   };
-  strip(0, 0, 44, 7, 0x55504a);        // Mid lane
-  strip(0, -17, 44, 7, 0x4e4a44);      // A-long
-  strip(0, 17, 44, 7, 0x4e4a44);       // B-tunnel
-  strip(24, -16, 12, 12, 0x6b5a33);    // Site A pad
-  strip(24, 16, 12, 12, 0x33505e);     // Site B pad
+  strip(0, 0, 44, 7, 0x6e675e);        // Mid lane
+  strip(0, -17, 44, 7, 0x665e54);      // A-long
+  strip(0, 17, 44, 7, 0x665e54);       // B-tunnel
+  strip(24, -16, 12, 12, 0x7d6a3d);    // Site A pad
+  strip(24, 16, 12, 12, 0x3f606e);     // Site B pad
 
   // Perimeter walls.
   box(scene, 0, 0, -26.5, 76, 5, 1.5, PALETTE.wallDark);
@@ -187,7 +191,8 @@ export function buildMap(scene) {
   box(scene, 20, 0, -12.5, 3, 1.4, 1.4, PALETTE.crate);
   box(scene, 28, 0, -21, 2, 2.8, 2, PALETTE.rust);
   // Crane: two legs + beam across Site A (visual only, no collider).
-  const craneMat = mat(0x8a3d1e, 0.6, 0.5);
+  // Rust-brown, not signal red — the red was shouting over the site.
+  const craneMat = mat(0x7a4a30, 0.6, 0.5);
   for (const [x, z] of [[20, -21.5], [28, -21.5]]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.7, 9, 0.7), craneMat);
     leg.position.set(x, 4.5, z); leg.castShadow = true; scene.add(leg);
@@ -226,7 +231,7 @@ export function buildMap(scene) {
   box(scene, 12, 0, 12.5, 1.2, 2.2, 3.4, PALETTE.wall);
 
   // Distant skyline silhouettes (outside the walls, visual only).
-  const skyMat = mat(0x3a3348, 1, 0);
+  const skyMat = mat(0x463e55, 1, 0);
   const rng = mulberry(1337);
   for (let i = 0; i < 26; i++) {
     const ang = (i / 26) * Math.PI * 2;

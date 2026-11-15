@@ -18,7 +18,7 @@ export class FX {
     this.pCol = new Float32Array(MAX_PARTICLES * 3);
     this.pGeo.setAttribute('position', new THREE.BufferAttribute(this.pPos, 3));
     this.pGeo.setAttribute('color', new THREE.BufferAttribute(this.pCol, 3));
-    this.pMat = new THREE.PointsMaterial({ size: 0.14, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false });
+    this.pMat = new THREE.PointsMaterial({ size: 0.08, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false });
     this.points = new THREE.Points(this.pGeo, this.pMat);
     this.points.frustumCulled = false;
     scene.add(this.points);
@@ -30,8 +30,8 @@ export class FX {
 
     // Tracer pool: one stretched box per tracer, reused.
     this.tracers = [];
-    const tMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.85 });
-    const tGeo = new THREE.BoxGeometry(0.03, 0.03, 1);
+    const tMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95 });
+    const tGeo = new THREE.BoxGeometry(0.06, 0.06, 1);
     for (let i = 0; i < MAX_TRACERS; i++) {
       const m = new THREE.Mesh(tGeo, tMat.clone());
       m.visible = false; scene.add(m);
@@ -51,6 +51,28 @@ export class FX {
     }
     this.sCursor = 0;
     this._v = new THREE.Vector3();
+
+    // Muzzle flash sprite: a small additive radial flare at the barrel
+    // tip. Particles alone read as floating squares this close to the
+    // camera, so the flash itself is one textured quad, ~70 ms.
+    const fc = document.createElement('canvas');
+    fc.width = 64; fc.height = 64;
+    const fg = fc.getContext('2d');
+    const grad = fg.createRadialGradient(32, 32, 2, 32, 32, 31);
+    grad.addColorStop(0, 'rgba(255, 246, 210, 1)');
+    grad.addColorStop(0.35, 'rgba(255, 196, 107, 0.95)');
+    grad.addColorStop(1, 'rgba(255, 140, 40, 0)');
+    fg.fillStyle = grad;
+    fg.fillRect(0, 0, 64, 64);
+    const flashTex = new THREE.CanvasTexture(fc);
+    flashTex.colorSpace = THREE.SRGBColorSpace;
+    this.flash = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.45, 0.45),
+      new THREE.MeshBasicMaterial({ map: flashTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.flash.visible = false;
+    scene.add(this.flash);
+    this.flashLife = 0;
   }
 
   spawn(x, y, z, vx, vy, vz, life, r, g, b) {
@@ -73,12 +95,19 @@ export class FX {
     }
   }
 
-  // Muzzle flash + a few sparks at the barrel tip.
+  // Muzzle flash: one additive flare quad at the barrel tip (a flash,
+  // not floating squares) + two tiny sparks. A Points burst this close
+  // to the camera reads as giant squares, so sparks stay out of it.
   muzzle(pos, dir) {
-    this.burst(pos, 6, 0xffc46b, 2.2, 0.12, 0.6);
-    this.burst(pos, 3, 0xfff2c0, 1.2, 0.08, 0.3);
+    this.flash.position.copy(pos);
+    this.flash.rotation.z = Math.random() * Math.PI;
+    this.flash.visible = true;
+    this.flashLife = 0.1;
   }
 
+  // One tracer: a stretched box from muzzle to impact, bright enough to
+  // read against a warm scene. Lives ~0.15 s (still on screen for a
+  // shutter a frame or two after the shot).
   tracer(from, to, color = 0xffd27a) {
     const t = this.tracers[this.tCursor];
     this.tCursor = (this.tCursor + 1) % MAX_TRACERS;
@@ -89,7 +118,7 @@ export class FX {
     t.mesh.material.color.setHex(color);
     t.mesh.material.opacity = 0.85;
     t.mesh.visible = true;
-    t.life = 0.07;
+    t.life = 0.15;
   }
 
   explosion(pos) {
@@ -130,6 +159,15 @@ export class FX {
   }
 
   update(dt, camera) {
+    // Muzzle flash sprite: face the camera, fade fast.
+    if (this.flashLife > 0) {
+      this.flashLife -= dt;
+      if (this.flashLife <= 0) { this.flash.visible = false; }
+      else {
+        this.flash.lookAt(camera.position);
+        this.flash.material.opacity = Math.min(1, this.flashLife / 0.1);
+      }
+    }
     // Particles.
     for (let i = 0; i < MAX_PARTICLES; i++) {
       if (this.pLife[i] <= 0) continue;
@@ -148,7 +186,7 @@ export class FX {
       if (t.life <= 0) continue;
       t.life -= dt;
       if (t.life <= 0) { t.mesh.visible = false; continue; }
-      t.mesh.material.opacity = t.life / 0.07 * 0.85;
+      t.mesh.material.opacity = t.life / 0.15 * 0.9;
     }
     // Smoke puffs billboard toward the camera and fade out.
     for (const s of this.smokes) {
@@ -165,5 +203,6 @@ export class FX {
     for (let i = 0; i < MAX_PARTICLES; i++) { this.pLife[i] = 0; this.pPos[i * 3 + 1] = -100; }
     for (const t of this.tracers) { t.life = 0; t.mesh.visible = false; }
     for (const s of this.smokes) { s.life = 0; s.mesh.visible = false; }
+    this.flashLife = 0; this.flash.visible = false;
   }
 }

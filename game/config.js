@@ -101,11 +101,13 @@ export const BOT = {
   thinkInterval: 0.15,  // seconds between vision checks per bot
 };
 
-// Foundry-9 palette: dusk orange + steel teal + thin fog.
+// Foundry-9 palette: dusk orange + steel teal + thin fog. Kept bright
+// enough to read at a glance — the dusk mood comes from warm light and
+// sky, not from dark surfaces.
 export const PALETTE = {
-  skyTop: 0x2b3a55, skyBottom: 0xd97a3d, fog: 0xc98a5a, fogNear: 45, fogFar: 130,
-  ground: 0x4a4640, groundLine: 0x37332e,
-  wall: 0x5d6b74, wallDark: 0x46525a, rust: 0xb05a2a, teal: 0x2e7f86,
-  crate: 0x8a6a3f, containerA: 0x7a4a2e, containerB: 0x3f6b6e,
-  warden: 0x3f7fbf, jackal: 0xd96a1e, accent: 0xffb347,
+  skyTop: 0x37527e, skyBottom: 0xd97a3d, fog: 0xd69c6c, fogNear: 55, fogFar: 150,
+  ground: 0x6b6156, groundLine: 0x37332e,
+  wall: 0x6b7a84, wallDark: 0x55636e, rust: 0xb05a2a, teal: 0x2e7f86,
+  crate: 0x96744a, containerA: 0x8a5836, containerB: 0x4a7d80,
+  warden: 0x5b9bd5, jackal: 0xe8853a, accent: 0xffb347,
 };

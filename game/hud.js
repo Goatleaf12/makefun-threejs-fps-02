@@ -1,31 +1,53 @@
 // BASTION PROTOCOL — hud.js
 // Every DOM overlay: health, ammo, timer, score, money, crosshair,
 // killfeed, hitmarker, damage direction, round banner, buy menu,
-// scoreboard, objective messages. The HUD is plain DOM/CSS — sharp,
-// cheap, and exactly what the screenshots show.
+// scoreboard, objective messages, minimap, floating damage numbers.
+// The HUD is plain DOM/CSS — sharp, cheap, and exactly what the
+// screenshots show.
 
 import { WEAPONS, GRENADES } from './config.js';
+
+// Minimap world bounds (Foundry-9 is 76 x 56 m, sites at x=24).
+const MAP_MIN_X = -38, MAP_MAX_X = 38, MAP_MIN_Z = -28, MAP_MAX_Z = 28;
 
 export class HUD {
   constructor(root) {
     this.el = {};
     const ids = ['health', 'healthBar', 'armor', 'ammoMag', 'ammoRes', 'weaponName',
-      'timer', 'score', 'money', 'roundLabel', 'crosshair', 'hitmarker', 'killfeed',
+      'weaponSlots', 'timer', 'score', 'money', 'roundLabel', 'crosshair', 'hitmarker', 'killfeed',
       'banner', 'bannerSub', 'objective', 'buyMenu', 'buyList', 'scoreboard',
       'scoreRows', 'flash', 'damageDir', 'reloadHint', 'hint', 'plantBar', 'plantFill',
-      'plantLabel', 'centerMsg'];
+      'plantLabel', 'centerMsg', 'armorBarWrap', 'armorBar', 'minimap', 'dmgLayer'];
     for (const id of ids) this.el[id] = root.querySelector('#' + id);
     this.killfeedTimer = 0;
     this.bannerTimer = 0;
     this.damageTimer = 0;
     this.hitTimer = 0;
+    this._mm = this.el.minimap.getContext('2d');
+    this._dmgCount = 0;
   }
 
   setHealth(hp, armor) {
     this.el.health.textContent = Math.max(0, Math.ceil(hp));
     this.el.healthBar.style.width = Math.max(0, hp) + '%';
     this.el.healthBar.style.background = hp > 50 ? '#7fd47a' : hp > 25 ? '#ffb347' : '#ff5a4a';
-    this.el.armor.textContent = armor > 0 ? 'ARMOR ' + Math.ceil(armor) : '';
+    this.el.armorBarWrap.style.display = armor > 0 ? 'block' : 'none';
+    this.el.armorBar.style.width = Math.max(0, Math.min(100, armor)) + '%';
+    this.el.armor.textContent = armor > 0 ? 'KEVLAR ' + Math.ceil(armor) : '';
+  }
+
+  // Weapon card: slots (1 = primary when bought, 2 = pistol), defuse
+  // kit, grenades. A pistol-only loadout shows one slot, not a duplicate.
+  setWeaponCard(loadout) {
+    const slots = [];
+    if (loadout.primary !== 'p9' && loadout.owned[loadout.primary]) {
+      slots.push(loadout.current === loadout.primary ? `<b>1 ${WEAPONS[loadout.primary].name}</b>` : `1 ${WEAPONS[loadout.primary].name}`);
+    }
+    slots.push(loadout.current === 'p9' ? '<b>2 P-9</b>' : '2 P-9');
+    if (loadout.kit) slots.push('KIT ✓');
+    const g = loadout.grenades;
+    slots.push(`FRAG ${g.frag} · FLASH ${g.flash} · SMOKE ${g.smoke}`);
+    this.el.weaponSlots.innerHTML = slots.join(' &nbsp;·&nbsp; ');
   }
 
   setAmmo(mag, reserve, name, reloading) {
@@ -54,6 +76,103 @@ export class HUD {
     this.el.crosshair.style.display = visible ? 'block' : 'none';
     const gap = Math.round(4 + spreadPx);
     this.el.crosshair.style.setProperty('--gap', gap + 'px');
+  }
+
+  // Floating damage number at screen point (sx, sy): the damage just
+  // dealt, orange + bigger on a headshot, red on a kill. It appears at
+  // full opacity and lifts after 3 s of GAME time (now): a wall-clock
+  // setTimeout is wrong here — this headless box takes ~8 s of wall time
+  // to render one screenshot frame while the game clock barely moves,
+  // so a 4.6 s wall-clock number was already gone when the capture
+  // frame was rendered. NOTE: no CSS transition on this node — a
+  // margin/opacity transition plus the fly class made the number
+  // invisible on headless captures even though it was in the DOM at
+  // opacity 1 (verified by six probes); a static node paints fine.
+  spawnDamageNumber(sx, sy, text, kind, now) {
+    const layer = this.el.dmgLayer;
+    while (layer.children.length >= 8) layer.firstChild.remove();
+    const div = document.createElement('div');
+    div.className = 'dmg-num' + (kind === 'head' ? ' head' : kind === 'kill' ? ' kill' : '');
+    div.textContent = text;
+    // Small jitter so two hits on the same spot in one burst don't
+    // print exactly on top of each other.
+    div.style.left = Math.round(sx + (Math.random() * 24 - 12)) + 'px';
+    div.style.top = Math.round(sy + (Math.random() * 16 - 8)) + 'px';
+    div._expire = now + 3;
+    layer.appendChild(div);
+  }
+
+  // Lift expired damage numbers (called by main.js on its 10 Hz HUD
+  // tick, on the same game clock the numbers were stamped with).
+  pruneDamageNumbers(now) {
+    const layer = this.el.dmgLayer;
+    for (const div of [...layer.children]) {
+      if (div._expire !== undefined && now > div._expire) div.remove();
+    }
+  }
+
+  // Live minimap (called ~10x/s by main.js): lanes, site rings + names,
+  // the player's arrow, squad dots, and a pulsing red marker while the
+  // charge is planted. Enemies are never shown — only what the squad
+  // would actually know.
+  drawMinimap(player, bots, planted, plantSite) {
+    const c = this._mm;
+    const W = 168, H = 124;
+    const X = (wx) => ((wx - MAP_MIN_X) / (MAP_MAX_X - MAP_MIN_X)) * W;
+    const Z = (wz) => ((wz - MAP_MIN_Z) / (MAP_MAX_Z - MAP_MIN_Z)) * H;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = 'rgba(20, 24, 30, 0.55)';
+    c.fillRect(0, 0, W, H);
+    // Lane strips.
+    c.fillStyle = 'rgba(233, 230, 223, 0.10)';
+    c.fillRect(X(-22), Z(-3.5), X(22) - X(-22), Z(3.5) - Z(-3.5));       // Mid
+    c.fillRect(X(-22), Z(-20.5), X(22) - X(-22), Z(-13.5) - Z(-20.5));   // A-long
+    c.fillRect(X(-22), Z(13.5), X(22) - X(-22), Z(20.5) - Z(13.5));     // B-tunnel
+    // Perimeter.
+    c.strokeStyle = 'rgba(233, 230, 223, 0.35)';
+    c.strokeRect(X(-38), Z(-28), X(38) - X(-38), Z(28) - Z(-28));
+    // Sites: ring + name. Planted charge pulses red on its site.
+    const sites = [
+      { x: 24, z: -16, label: 'SITE A', sub: 'CRANE YARD', color: '#ffb347' },
+      { x: 24, z: 16, label: 'SITE B', sub: 'TANK FARM', color: '#7fd4ff' },
+    ];
+    for (const s of sites) {
+      const isPlant = planted && plantSite === s.label.slice(-1);
+      c.beginPath();
+      c.arc(X(s.x), Z(s.z), isPlant ? 7 + Math.sin(performance.now() / 150) * 1.5 : 6, 0, Math.PI * 2);
+      c.strokeStyle = isPlant ? '#ff2a1a' : s.color;
+      c.lineWidth = 1.6;
+      c.stroke();
+      // Labels sit LEFT of the ring: both sites are on the map's right
+      // edge, so text to the right would clip off the canvas.
+      c.font = 'bold 8px system-ui, sans-serif';
+      c.fillStyle = isPlant ? '#ff5a4a' : s.color;
+      c.textAlign = 'right';
+      c.fillText(s.label, X(s.x) - 9, Z(s.z) - 1);
+      c.font = '7px system-ui, sans-serif';
+      c.fillStyle = 'rgba(233, 230, 223, 0.6)';
+      c.fillText(s.sub, X(s.x) - 9, Z(s.z) + 8);
+    }
+    // Squad dots (Wardens, blue); the player is a white arrow.
+    for (const b of bots) {
+      if (!b.alive || b.team !== 'warden') continue;
+      c.beginPath();
+      c.arc(X(b.pos.x), Z(b.pos.z), 3, 0, Math.PI * 2);
+      c.fillStyle = '#7fb8ff';
+      c.fill();
+    }
+    if (player.alive) {
+      const px = X(player.pos.x), pz = Z(player.pos.z);
+      c.save();
+      c.translate(px, pz);
+      // Canvas y runs south, so the up-drawn arrow rotates by -yaw.
+      c.rotate(-player.yaw);
+      c.beginPath();
+      c.moveTo(0, -6); c.lineTo(4.5, 5); c.lineTo(-4.5, 5); c.closePath();
+      c.fillStyle = '#ffffff';
+      c.fill();
+      c.restore();
+    }
   }
 
   hitmarker(head, kill) {
